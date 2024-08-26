@@ -116,24 +116,49 @@ audio = pyaudio.PyAudio()
 stream = None
 is_muted = False
 
+def get_input_device_index():
+    p = pyaudio.PyAudio()
+    for i in range(p.get_device_count()):
+        dev = p.get_device_info_by_index(i)
+        if dev['maxInputChannels'] > 0:  # Busca dispositivos de entrada
+            print(f"Input Device id {i} - {dev['name']}")
+    p.terminate()
+    return int(input("Enter input device index: "))
+
+DEVICE_INDEX = get_input_device_index()
+
 def audio_stream():
     global stream
     stream = audio.open(format=FORMAT, channels=CHANNELS,
                         rate=RATE, input=True,
-                        frames_per_buffer=CHUNK)
+                        frames_per_buffer=CHUNK,
+                        input_device_index=DEVICE_INDEX)
     while True:
         if not is_muted:
-            data = stream.read(CHUNK)
-            yield (b'--frame\r\n'
-                   b'Content-Type: audio/wav\r\n\r\n' + data + b'\r\n')
+            try:
+                data = stream.read(CHUNK, exception_on_overflow=False)
+                audio_segment = AudioSegment(
+                    data=data,
+                    sample_width=audio.get_sample_size(FORMAT),
+                    frame_rate=RATE,
+                    channels=CHANNELS
+                )
+                buf = io.BytesIO()
+                audio_segment.export(buf, format="mp3")
+                yield (b'--frame\r\n'
+                       b'Content-Type: audio/mpeg\r\n\r\n' + buf.getvalue() + b'\r\n')
+            except IOError as e:
+                print(f"Error de E/S: {e}")
+                yield (b'--frame\r\n'
+                       b'Content-Type: audio/mpeg\r\n\r\n' + b'\x00' * CHUNK + b'\r\n')
         else:
             yield (b'--frame\r\n'
-                   b'Content-Type: audio/wav\r\n\r\n' + b'\x00' * CHUNK + b'\r\n')
+                   b'Content-Type: audio/mpeg\r\n\r\n' + b'\x00' * CHUNK + b'\r\n')
 
 @app.route('/audio_feed')
 def audio_feed():
     return Response(audio_stream(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
+                    mimetype='audio/mpeg')
 
 @app.route('/toggle_mute', methods=['POST'])
 def toggle_mute():
