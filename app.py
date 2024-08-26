@@ -125,16 +125,22 @@ def get_input_device_index():
         if (p.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels')) > 0:
             print("Input Device id ", i, " - ", p.get_device_info_by_host_api_device_index(0, i).get('name'))
     p.terminate()
-    return int(input("Enter input device index: "))
+    return 0  # Usar el índice 0 por defecto
 
 DEVICE_INDEX = get_input_device_index()
 
 def audio_stream():
     global stream
-    stream = audio.open(format=FORMAT, channels=CHANNELS,
-                        rate=RATE, input=True,
-                        frames_per_buffer=CHUNK,
-                        input_device_index=DEVICE_INDEX)
+    try:
+        stream = audio.open(format=FORMAT, channels=CHANNELS,
+                            rate=RATE, input=True,
+                            frames_per_buffer=CHUNK,
+                            input_device_index=DEVICE_INDEX)
+        print(f"Audio stream opened successfully with device index {DEVICE_INDEX}")
+    except OSError as e:
+        print(f"Error opening audio stream: {e}")
+        return
+
     while True:
         if not is_muted:
             try:
