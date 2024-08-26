@@ -6,6 +6,9 @@ import time
 import subprocess
 import os
 from ap_config import setup_ap, start_ap, stop_ap, check_wifi_connection, configure_wifi
+import pyaudio
+import wave
+import audioop
 
 app = Flask(__name__)
 picam2 = Picamera2()
@@ -103,6 +106,40 @@ def initialize_network():
         start_ap()
     else:
         print("Conectado a Wi-Fi.")
+
+CHUNK = 1024
+FORMAT = pyaudio.paInt16
+CHANNELS = 1
+RATE = 44100
+
+audio = pyaudio.PyAudio()
+stream = None
+is_muted = False
+
+def audio_stream():
+    global stream
+    stream = audio.open(format=FORMAT, channels=CHANNELS,
+                        rate=RATE, input=True,
+                        frames_per_buffer=CHUNK)
+    while True:
+        if not is_muted:
+            data = stream.read(CHUNK)
+            yield (b'--frame\r\n'
+                   b'Content-Type: audio/wav\r\n\r\n' + data + b'\r\n')
+        else:
+            yield (b'--frame\r\n'
+                   b'Content-Type: audio/wav\r\n\r\n' + b'\x00' * CHUNK + b'\r\n')
+
+@app.route('/audio_feed')
+def audio_feed():
+    return Response(audio_stream(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/toggle_mute', methods=['POST'])
+def toggle_mute():
+    global is_muted
+    is_muted = not is_muted
+    return jsonify({"status": "Muted" if is_muted else "Unmuted"})
 
 if __name__ == '__main__':
     setup_ap()
