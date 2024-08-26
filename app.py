@@ -33,6 +33,10 @@ def generate_frames():
 def index():
     return render_template('index.html')
 
+@app.route('/wifi_config')
+def wifi_config():
+    return render_template('wifi_config.html')
+
 @app.route('/video_feed')
 def video_feed():
     return Response(generate_frames(),

@@ -17,19 +17,18 @@
     <h1>Baby Monitor</h1>
     <div id="video-stream">
         <img src="{{ url_for('video_feed') }}" width="640" height="480" />
+        <audio id="audio-stream" autoplay>
+            <source src="{{ url_for('audio_feed') }}" type="audio/wav">
+        </audio>
     </div>
     <div id="controls">
         <button onclick="toggleAP()">Toggle AP/WiFi</button>
         <button onclick="shutdown()">Shutdown</button>
         <button onclick="reboot()">Reboot</button>
+        <button onclick="toggleMute()">Toggle Mute</button>
     </div>
     <div id="status"></div>
-    <div id="wifi-form">
-        <h2>Configure WiFi</h2>
-        <input type="text" id="ssid" placeholder="SSID">
-        <input type="password" id="password" placeholder="Password">
-        <button onclick="configureWifi()">Connect</button>
-    </div>
+    <a href="/wifi_config">Configure WiFi</a>
 
     <script>
         function toggleAP() {
@@ -61,23 +60,13 @@
             }
         }
 
-        function configureWifi() {
-            const ssid = document.getElementById('ssid').value;
-            const password = document.getElementById('password').value;
-            
-            fetch('/configure_wifi', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `ssid=${encodeURIComponent(ssid)}&password=${encodeURIComponent(password)}`
-            })
-            .then(response => response.json())
-            .then(data => alert(data.status))
-            .catch(error => {
-                console.error('Error:', error);
-                alert('Error configuring WiFi. Check console for details.');
-            });
+        function toggleMute() {
+            fetch('/toggle_mute', {method: 'POST'})
+                .then(response => response.json())
+                .then(data => {
+                    alert(data.status);
+                    document.getElementById('audio-stream').muted = (data.status === "Muted");
+                });
         }
 
         function updateStatus() {

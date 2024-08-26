@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WiFi Configuration</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        #wifi-form { margin-top: 20px; }
+        #wifi-form input { margin: 5px; padding: 5px; }
+    </style>
+</head>
+<body>
+    <h1>WiFi Configuration</h1>
+    <div id="wifi-form">
+        <input type="text" id="ssid" placeholder="SSID">
+        <input type="password" id="password" placeholder="Password">
+        <button onclick="configureWifi()">Connect</button>
+    </div>
+    <div id="status"></div>
+    <a href="/">Back to main page</a>
+
+    <script>
+        function configureWifi() {
+            const ssid = document.getElementById('ssid').value;
+            const password = document.getElementById('password').value;
+            
+            fetch('/configure_wifi', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `ssid=${encodeURIComponent(ssid)}&password=${encodeURIComponent(password)}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('status').innerText = data.status;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('status').innerText = 'Error configuring WiFi. Check console for details.';
+            });
+        }
+    </script>
+</body>
+</html>
