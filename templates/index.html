@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Baby Monitor</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        #video-stream { margin-bottom: 20px; }
+        button { margin: 10px; padding: 10px; font-size: 16px; }
+        #status { margin-top: 20px; font-weight: bold; }
+        #wifi-form { margin-top: 20px; }
+        #wifi-form input { margin: 5px; padding: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Baby Monitor</h1>
+    <div id="video-stream">
+        <img src="{{ url_for('video_feed') }}" width="640" height="480" />
+    </div>
+    <div id="controls">
+        <button onclick="toggleAP()">Toggle AP/WiFi</button>
+        <button onclick="shutdown()">Shutdown</button>
+        <button onclick="reboot()">Reboot</button>
+    </div>
+    <div id="status"></div>
+    <div id="wifi-form">
+        <h2>Configure WiFi</h2>
+        <input type="text" id="ssid" placeholder="SSID">
+        <input type="password" id="password" placeholder="Password">
+        <button onclick="configureWifi()">Connect</button>
+    </div>
+
+    <script>
+        function toggleAP() {
+            fetch('/toggle_ap', {method: 'POST'})
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('status').innerText = `Status: ${data.status}\nIP: ${data.ip}`;
+                    alert(`Network changed. New status: ${data.status}\nNew IP: ${data.ip}\nYou may need to reconnect to the new network.`);
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error changing network. Check console for details.');
+                });
+        }
+
+        function shutdown() {
+            if (confirm('Are you sure you want to shut down the device?')) {
+                fetch('/shutdown', {method: 'POST'})
+                    .then(response => response.json())
+                    .then(data => alert(data.status));
+            }
+        }
+
+        function reboot() {
+            if (confirm('Are you sure you want to reboot the device?')) {
+                fetch('/reboot', {method: 'POST'})
+                    .then(response => response.json())
+                    .then(data => alert(data.status));
+            }
+        }
+
+        function configureWifi() {
+            const ssid = document.getElementById('ssid').value;
+            const password = document.getElementById('password').value;
+            
+            fetch('/configure_wifi', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `ssid=${encodeURIComponent(ssid)}&password=${encodeURIComponent(password)}`
+            })
+            .then(response => response.json())
+            .then(data => alert(data.status))
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error configuring WiFi. Check console for details.');
+            });
+        }
+
+        function updateStatus() {
+            fetch('/network_status')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('status').innerText = `Status: ${data.status}\nIP: ${data.ip}`;
+                });
+        }
+
+        // Actualizar el estado cada 10 segundos
+        setInterval(updateStatus, 10000);
+        // Actualizar el estado inmediatamente al cargar la página
+        updateStatus();
+    </script>
+</body>
+</html>
