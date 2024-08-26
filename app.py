@@ -6,9 +6,8 @@ import time
 import subprocess
 import os
 from ap_config import setup_ap, start_ap, stop_ap, check_wifi_connection, configure_wifi
-import pyaudio
-import wave
-import audioop
+import alsaaudio
+import numpy as np
 from pydub import AudioSegment
 
 app = Flask(__name__)
@@ -130,36 +129,37 @@ def get_input_device_index():
 DEVICE_INDEX = get_input_device_index()
 
 def audio_stream():
-    global stream
     try:
-        stream = audio.open(format=FORMAT, channels=CHANNELS,
-                            rate=RATE, input=True,
-                            frames_per_buffer=CHUNK,
-                            input_device_index=DEVICE_INDEX)
-        print(f"Audio stream opened successfully with device index {DEVICE_INDEX}")
-    except OSError as e:
-        print(f"Error opening audio stream: {e}")
+        inp = alsaaudio.PCM(alsaaudio.PCM_CAPTURE, alsaaudio.PCM_NONBLOCK)
+        inp.setchannels(CHANNELS)
+        inp.setrate(RATE)
+        inp.setformat(alsaaudio.PCM_FORMAT_S16_LE)
+        inp.setperiodsize(CHUNK)
+        print("ALSA audio stream opened successfully")
+    except Exception as e:
+        print(f"Error opening ALSA audio stream: {e}")
         return
 
     while True:
         if not is_muted:
             try:
-                data = stream.read(CHUNK, exception_on_overflow=False)
-                try:
-                    audio_segment = AudioSegment(
-                        data=data,
-                        sample_width=audio.get_sample_size(FORMAT),
-                        frame_rate=RATE,
-                        channels=CHANNELS
-                    )
-                    buf = io.BytesIO()
-                    audio_segment.export(buf, format="mp3")
-                    yield (b'--frame\r\n'
-                           b'Content-Type: audio/mpeg\r\n\r\n' + buf.getvalue() + b'\r\n')
-                except Exception as e:
-                    print(f"Error processing audio: {e}")
-                    yield (b'--frame\r\n'
-                           b'Content-Type: audio/mpeg\r\n\r\n' + b'\x00' * CHUNK + b'\r\n')
+                l, data = inp.read()
+                if l:
+                    try:
+                        audio_segment = AudioSegment(
+                            data=data,
+                            sample_width=2,
+                            frame_rate=RATE,
+                            channels=CHANNELS
+                        )
+                        buf = io.BytesIO()
+                        audio_segment.export(buf, format="mp3")
+                        yield (b'--frame\r\n'
+                               b'Content-Type: audio/mpeg\r\n\r\n' + buf.getvalue() + b'\r\n')
+                    except Exception as e:
+                        print(f"Error processing audio: {e}")
+                        yield (b'--frame\r\n'
+                               b'Content-Type: audio/mpeg\r\n\r\n' + b'\x00' * CHUNK + b'\r\n')
             except IOError as e:
                 print(f"Error de E/S: {e}")
                 yield (b'--frame\r\n'
