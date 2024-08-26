@@ -9,6 +9,7 @@ from ap_config import setup_ap, start_ap, stop_ap, check_wifi_connection, config
 import pyaudio
 import wave
 import audioop
+from pydub import AudioSegment
 
 app = Flask(__name__)
 picam2 = Picamera2()
@@ -118,10 +119,11 @@ is_muted = False
 
 def get_input_device_index():
     p = pyaudio.PyAudio()
-    for i in range(p.get_device_count()):
-        dev = p.get_device_info_by_index(i)
-        if dev['maxInputChannels'] > 0:  # Busca dispositivos de entrada
-            print(f"Input Device id {i} - {dev['name']}")
+    info = p.get_host_api_info_by_index(0)
+    numdevices = info.get('deviceCount')
+    for i in range(0, numdevices):
+        if (p.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels')) > 0:
+            print("Input Device id ", i, " - ", p.get_device_info_by_host_api_device_index(0, i).get('name'))
     p.terminate()
     return int(input("Enter input device index: "))
 
@@ -137,16 +139,21 @@ def audio_stream():
         if not is_muted:
             try:
                 data = stream.read(CHUNK, exception_on_overflow=False)
-                audio_segment = AudioSegment(
-                    data=data,
-                    sample_width=audio.get_sample_size(FORMAT),
-                    frame_rate=RATE,
-                    channels=CHANNELS
-                )
-                buf = io.BytesIO()
-                audio_segment.export(buf, format="mp3")
-                yield (b'--frame\r\n'
-                       b'Content-Type: audio/mpeg\r\n\r\n' + buf.getvalue() + b'\r\n')
+                try:
+                    audio_segment = AudioSegment(
+                        data=data,
+                        sample_width=audio.get_sample_size(FORMAT),
+                        frame_rate=RATE,
+                        channels=CHANNELS
+                    )
+                    buf = io.BytesIO()
+                    audio_segment.export(buf, format="mp3")
+                    yield (b'--frame\r\n'
+                           b'Content-Type: audio/mpeg\r\n\r\n' + buf.getvalue() + b'\r\n')
+                except Exception as e:
+                    print(f"Error processing audio: {e}")
+                    yield (b'--frame\r\n'
+                           b'Content-Type: audio/mpeg\r\n\r\n' + b'\x00' * CHUNK + b'\r\n')
             except IOError as e:
                 print(f"Error de E/S: {e}")
                 yield (b'--frame\r\n'
