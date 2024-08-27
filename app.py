@@ -8,7 +8,7 @@ import os
 from ap_config import setup_ap, start_ap, stop_ap, check_wifi_connection, configure_wifi
 import alsaaudio
 import numpy as np
-from pydub import AudioSegment
+import requests
 
 app = Flask(__name__)
 picam2 = Picamera2()
@@ -110,53 +110,68 @@ def initialize_network():
 CHUNK = 1024
 CHANNELS = 1
 RATE = 44100
+BUFFER_SECONDS = 5
+BUFFER_SIZE = RATE * BUFFER_SECONDS
 
+audio_buffer = np.zeros(BUFFER_SIZE, dtype=np.int16)
+buffer_index = 0
 is_muted = False
 
-def audio_stream():
-    try:
-        inp = alsaaudio.PCM(alsaaudio.PCM_CAPTURE, alsaaudio.PCM_NONBLOCK)
-        inp.setchannels(CHANNELS)
-        inp.setrate(RATE)
-        inp.setformat(alsaaudio.PCM_FORMAT_S16_LE)
-        inp.setperiodsize(CHUNK)
-        print("ALSA audio stream opened successfully")
-    except Exception as e:
-        print(f"Error opening ALSA audio stream: {e}")
-        return
+def detect_cry(audio_data):
+    # Implementa aquí tu lógica de detección de llanto
+    # Este es un ejemplo simple basado en el volumen
+    return np.max(np.abs(audio_data)) > 10000
+
+def send_telegram_notification():
+    bot_token = 'TU_BOT_TOKEN'
+    chat_id = 'TU_CHAT_ID'
+    message = 'Se ha detectado llanto del bebé!'
+    url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
+    params = {'chat_id': chat_id, 'text': message}
+    requests.get(url, params=params)
+
+def audio_processor():
+    global buffer_index
+    inp = alsaaudio.PCM(alsaaudio.PCM_CAPTURE, alsaaudio.PCM_NONBLOCK)
+    inp.setchannels(CHANNELS)
+    inp.setrate(RATE)
+    inp.setformat(alsaaudio.PCM_FORMAT_S16_LE)
+    inp.setperiodsize(CHUNK)
 
     while True:
         if not is_muted:
-            try:
-                l, data = inp.read()
-                if l:
-                    try:
-                        audio_segment = AudioSegment(
-                            data=data,
-                            sample_width=2,
-                            frame_rate=RATE,
-                            channels=CHANNELS
-                        )
-                        buf = io.BytesIO()
-                        audio_segment.export(buf, format="mp3")
-                        yield (b'--frame\r\n'
-                               b'Content-Type: audio/mpeg\r\n\r\n' + buf.getvalue() + b'\r\n')
-                    except Exception as e:
-                        print(f"Error processing audio: {e}")
-                        yield (b'--frame\r\n'
-                               b'Content-Type: audio/mpeg\r\n\r\n' + b'\x00' * CHUNK + b'\r\n')
-            except IOError as e:
-                print(f"Error de E/S: {e}")
-                yield (b'--frame\r\n'
-                       b'Content-Type: audio/mpeg\r\n\r\n' + b'\x00' * CHUNK + b'\r\n')
+            l, data = inp.read()
+            if l:
+                audio_data = np.frombuffer(data, dtype=np.int16)
+                audio_buffer[buffer_index:buffer_index+len(audio_data)] = audio_data
+                buffer_index = (buffer_index + len(audio_data)) % BUFFER_SIZE
+                
+                if detect_cry(audio_data):
+                    send_telegram_notification()
+        else:
+            time.sleep(0.1)
+
+def audio_stream():
+    global buffer_index
+    while True:
+        if not is_muted:
+            start = (buffer_index - CHUNK) % BUFFER_SIZE
+            end = (start + CHUNK) % BUFFER_SIZE
+            if start < end:
+                data = audio_buffer[start:end].tobytes()
+            else:
+                data = np.concatenate((audio_buffer[start:], audio_buffer[:end])).tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: audio/l16\r\n\r\n' + data + b'\r\n')
         else:
             yield (b'--frame\r\n'
-                   b'Content-Type: audio/mpeg\r\n\r\n' + b'\x00' * CHUNK + b'\r\n')
+                   b'Content-Type: audio/l16\r\n\r\n' + b'\x00' * CHUNK * 2 + b'\r\n')
+        time.sleep(CHUNK / RATE)
 
 @app.route('/audio_feed')
 def audio_feed():
     return Response(audio_stream(),
-                    mimetype='audio/mpeg')
+                    mimetype='audio/l16; rate=44100; channels=1')
 
 @app.route('/toggle_mute', methods=['POST'])
 def toggle_mute():
@@ -170,4 +185,9 @@ if __name__ == '__main__':
     network_thread = threading.Thread(target=check_and_switch_network)
     network_thread.daemon = True
     network_thread.start()
+    
+    audio_thread = threading.Thread(target=audio_processor)
+    audio_thread.daemon = True
+    audio_thread.start()
+    
     app.run(host='0.0.0.0', port=8080, threaded=True)
