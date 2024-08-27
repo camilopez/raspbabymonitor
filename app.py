@@ -12,16 +12,16 @@ import requests
 
 app = Flask(__name__)
 picam2 = Picamera2()
+camera_configured = False
 
 def generate_frames():
-    config = picam2.create_still_configuration(main={"size": (640, 480)})
-    picam2.configure(config)
-
-    # Ajustar el balance de blancos
-    picam2.set_controls({"AwbMode": 0})  # 0 es el modo automático
-    picam2.set_controls({"AwbEnable": 1})  # Habilitar el balance de blancos automático
-
-    picam2.start()
+    global camera_configured
+    if not camera_configured:
+        config = picam2.create_still_configuration(main={"size": (640, 480)})
+        picam2.configure(config)
+        picam2.set_controls({"AwbMode": 0, "AwbEnable": 1})
+        picam2.start()
+        camera_configured = True
     
     try:
         while True:
@@ -29,8 +29,11 @@ def generate_frames():
             picam2.capture_file(stream, format='jpeg')
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + stream.getvalue() + b'\r\n')
+    except Exception as e:
+        print(f"Error in generate_frames: {e}")
     finally:
         picam2.stop()
+        camera_configured = False
 
 @app.route('/')
 def index():
@@ -42,6 +45,10 @@ def wifi_config():
 
 @app.route('/video_feed')
 def video_feed():
+    global camera_configured
+    if camera_configured:
+        picam2.stop()
+        camera_configured = False
     return Response(generate_frames(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
@@ -178,6 +185,23 @@ def toggle_mute():
     global is_muted
     is_muted = not is_muted
     return jsonify({"status": "Muted" if is_muted else "Unmuted"})
+
+import atexit
+
+def cleanup():
+    global camera_configured
+    if camera_configured:
+        picam2.stop()
+        camera_configured = False
+
+atexit.register(cleanup)
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Registra el error
+    app.logger.error(f"Unhandled exception: {e}", exc_info=True)
+    # Devuelve una respuesta de error genérica
+    return jsonify(error=str(e)), 500
 
 if __name__ == '__main__':
     setup_ap()
